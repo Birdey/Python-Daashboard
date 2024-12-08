@@ -53,7 +53,7 @@ class ConsoleHandler(logging.StreamHandler):
             self.flush()
         except RecursionError:
             raise
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             self.handleError(record)
 
 
@@ -99,6 +99,9 @@ class ModuleDataNotAvailable(Exception):
 # setup main logger
 MAIN_LOGGER = settup_logging("-d" in sys.argv or "--debug" in sys.argv)
 MAIN_LOGGER.info("Starting Py Dashboard %s", time.strftime("%Y-%m-%d %H:%M:%S"))
+
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
 
 
 class DashModule:
@@ -189,13 +192,13 @@ class Dashboard(tk.Tk):
         super().__init__()
         self.title("Py Dashboard")
         self.modules: List[DashModule] = []
-        self.bg_color = "#f0f0f0"
-        self.text_color = "#000000"
+        self.bg_color = LIGHT_MODE_BG
+        self.text_color = LIGHT_MODE_TEXT
         self.moduels_amount = 0
         self.dark_mode = False
         self.configure(bg=self.bg_color)
-        self.width = 800
-        self.height = 600
+        self.width = SCREEN_WIDTH
+        self.height = SCREEN_HEIGHT
         self.geometry(f"{self.width}x{self.height}")
         self.resizable(True, True)
 
@@ -211,6 +214,7 @@ class Dashboard(tk.Tk):
 
         # Recalculate layout in 5 ms
         self.after(10, self.reload_layout)
+        self.after(10, self.toggle_fullscreen, None)
 
     def load_modules(self) -> None:
         """Load modules"""
@@ -255,7 +259,7 @@ class Dashboard(tk.Tk):
             return []
 
         # Calculate rows and cols
-        modules_amount = len(self.modules)
+        modules_amount = len(self.modules) + 1
         cols = min(modules_amount, max(modules_amount // 2, 1))
         rows = (modules_amount + cols - 1) // cols
 
@@ -266,13 +270,27 @@ class Dashboard(tk.Tk):
             # Adjust the width of the last frame
 
             row, col = divmod(i, cols)
+            module_width = self.width // cols
+            module_height = self.height // rows
             frame = tk.Frame(
                 self,
                 bg=self.bg_color,
-                width=self.width // cols,
-                height=self.height // rows,
+                width=module_width,
+                height=module_height,
             )
+
             frame.grid(row=row, column=col, sticky="nsew")
+            frame.update_idletasks()
+            frame_position = frame.winfo_geometry().split("+")
+            frame_pos_x, frame_pos_y = frame_position[1], frame_position[2]
+            size = frame_position[0].split("x")
+            frame_width, frame_height = size[0], size[1]
+            logging.info(
+                "Module '%s' size: %s, %s", module.name, frame_width, frame_height
+            )
+            logging.info(
+                "Module '%s' position: %s, %s", module.name, frame_pos_x, frame_pos_y
+            )
             frames.append(frame)
 
         # Return frames
@@ -296,15 +314,25 @@ class Dashboard(tk.Tk):
 
         # do Run on all modules for each frame
         for module, frame in zip(self.modules, self.frames):
+            geometry = frame.winfo_geometry().split("+")
+            position = geometry[1], geometry[2]
+            size = geometry[0].split("x")
+            print(f"Module {module.name} frame position: {position} and size {size}")
             module.load_module()
             module.run(frame)
 
+        self.after(1000 * 60 * 10, self.reload_layout)
+
     def toggle_fullscreen(self, _) -> None:
         """Toggle fullscreen mode"""
-        # self.attributes("-fullscreen", not self.attributes("-fullscreen"))
-        self.width = self.winfo_screenwidth() if self.attributes("-fullscreen") else 800
+        self.attributes("-fullscreen", not self.attributes("-fullscreen"))
+        self.width = (
+            self.winfo_screenwidth() if self.attributes("-fullscreen") else SCREEN_WIDTH
+        )
         self.height = (
-            self.winfo_screenheight() if self.attributes("-fullscreen") else 600
+            self.winfo_screenheight()
+            if self.attributes("-fullscreen")
+            else SCREEN_HEIGHT
         )
         self.geometry(f"{self.width}x{self.height}")
         self.reload_layout()
